@@ -62,6 +62,32 @@ func main() {
 		}
 	})
 
+	http.HandleFunc("/find", func(writer http.ResponseWriter, request *http.Request) {
+		out, err := daemon.runFindContent(writer, request.RequestURI)
+
+		writer.Header().Add("Access-Control-Allow-Origin", "*")
+
+		if err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = writer.Write([]byte(err.Error()))
+			return
+		}
+
+		outputJSON, err := json.Marshal(out)
+
+		if err != nil {
+			writer.WriteHeader(http.StatusInternalServerError)
+			_, _ = writer.Write([]byte(err.Error()))
+			return
+		}
+
+		_, err = writer.Write(outputJSON)
+
+		if err != nil {
+			fmt.Printf("could not return data over HTTP: %v\n", err.Error())
+		}
+	})
+
 	err = http.Serve(l, nil)
 	if err != nil {
 		panic(err)
