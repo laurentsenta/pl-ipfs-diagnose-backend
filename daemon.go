@@ -11,6 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/identify"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 )
 
 type daemon struct {
@@ -21,8 +22,10 @@ type daemon struct {
 }
 
 type ephemeralHost struct {
-	host      host.Host
-	idService identify.IDService
+	// TODO: figure out what happens with ref / values x struct / interface
+	host        host.Host
+	idService   identify.IDService
+	pingService *ping.PingService
 	// dht          kademlia
 	// dhtMessenger *dhtpb.ProtocolMessenger
 }
@@ -31,6 +34,8 @@ type IdentifyOutput struct {
 	ParseAddressError  string   `json:"parse_address_error,omitempty"`
 	ConnectToPeerError string   `json:"connect_to_peer_error,omitempty"`
 	IdentifyPeerError  string   `json:"identify_peer_error,omitempty"`
+	PingError          string   `json:"ping_error,omitempty"`
+	PingDurationMS     int64    `json:"ping_duration_ms,omitempty"`
 	Protocols          []string `json:"protocols,omitempty"`
 	Addresses          []string `json:"addresses,omitempty"`
 }
@@ -47,7 +52,9 @@ func newEphemeralHost() ephemeralHost {
 		panic(err) // TODO: handle better
 	}
 
-	return ephemeralHost{host: h, idService: id}
+	p := ping.NewPingService(h)
+
+	return ephemeralHost{host: h, idService: id, pingService: p}
 }
 
 func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (IdentifyOutput, error) {
@@ -77,7 +84,7 @@ func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (Identif
 	defer e.host.Close()
 	defer e.idService.Close()
 
-	dialCtx, dialCancel := context.WithTimeout(ctx, 30*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer dialCancel()
 
 	// Note: I don't understand this API, I have to connect with a peer addr
@@ -104,6 +111,17 @@ func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (Identif
 		return out, nil
 	}
 
+	// ping node
+	ping := e.pingService.Ping(dialCtx, ai.ID)
+	result := <-ping
+
+	if result.Error != nil {
+		out.PingError = result.Error.Error()
+		return out, nil
+	}
+	out.PingDurationMS = result.RTT.Milliseconds()
+
+	// identify node
 	identifyC := d.idService.IdentifyWait(conn)
 
 	select {
@@ -133,7 +151,8 @@ func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (Identif
 
 	out.Addresses = strAddresses
 
-	// TODO: I would like to get the address seen by the other peer. It should be in the identify protocol payload.
+	// TODO: I would like to get the address seen by the other peer.
+	// It should be in the identify protocol payload.
 
 	return out, nil
 }
