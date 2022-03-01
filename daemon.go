@@ -57,6 +57,15 @@ func newEphemeralHost(ctx context.Context) ephemeralHost {
 
 	p := ping.NewPingService(h)
 
+	// Apparently this is pretty much identical to the DHTClient call.
+	dht, err := kadDHT.New(ctx, h, kadDHT.Mode(kadDHT.ModeClient), kadDHT.BootstrapPeers(kadDHT.GetDefaultBootstrapPeerAddrInfos()...))
+
+	// Note: None of the attempts above would bootstrap, I use the example from original IPFS-Check with NewFullRT. But I'm not sure why.
+
+	if err != nil {
+		panic(err) // TODO: handle better
+	}
+
 	// There are 3 different new function it's hard to tell which one to use.
 	// dht, err := kadDHT.New(ctx, h, kadDHT.BootstrapPeers(kadDHT.GetDefaultBootstrapPeerAddrInfos()...))
 
@@ -64,21 +73,12 @@ func newEphemeralHost(ctx context.Context) ephemeralHost {
 	// traverse the DHT at all (no bootstrap nodes)?
 	// dht := kadDHT.NewDHTClient(ctx, h, datastore.NewMapDatastore())
 
-	// Apparently this is pretty much identical to the DHTClient call.
-	dht, err := kadDHT.New(ctx, h, kadDHT.Mode(kadDHT.ModeClient), kadDHT.BootstrapPeers(kadDHT.GetDefaultBootstrapPeerAddrInfos()...))
-	if err != nil {
-		panic(err) // TODO: handle better
-	}
-
-	// NOTE: Bootstrap tells the DHT to get into a bootstrapped state satisfying the IpfsRouter interface.
+	// NOTE: "Bootstrap tells the DHT to get into a bootstrapped state satisfying the IpfsRouter interface.""
 	// I have no idea what that means, I just want to make sure the node connects at least to my bootstraping peers
 	err = dht.Bootstrap(ctx)
 	if err != nil {
 		panic(err) // TODO: handle better
 	}
-
-	log.Println("default bootstrap:", kadDHT.GetDefaultBootstrapPeerAddrInfos())
-	log.Println("current peers:", h.Network().Peers())
 
 	return ephemeralHost{host: h, idService: id, pingService: p, dht: dht}
 }
@@ -220,6 +220,10 @@ func (d *daemon) runFindContent(writer http.ResponseWriter, uristr string) (Find
 	e := newEphemeralHost(ctx)
 	defer e.host.Close()
 	defer e.idService.Close()
+
+	// Without this there are no peer when the rest of the code executes
+	// The fullrt implementation provides a Ready() method.
+	time.Sleep(5 * time.Second)
 
 	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer dialCancel()
