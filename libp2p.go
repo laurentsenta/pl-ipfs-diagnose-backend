@@ -11,7 +11,6 @@ import (
 
 type privateAddrFilterConnectionGater struct{}
 
-// TODO: What is this?
 var _ connmgr.ConnectionGater = (*privateAddrFilterConnectionGater)(nil)
 
 func (f *privateAddrFilterConnectionGater) InterceptAddrDial(_ peer.ID, addr ma.Multiaddr) (allow bool) {

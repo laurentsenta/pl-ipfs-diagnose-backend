@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"log"
 	"net/url"
 	"time"
 
@@ -21,8 +20,8 @@ import (
 )
 
 type daemon struct {
-	host      host.Host
-	idService identify.IDService
+	// host host.Host
+	// idService identify.IDService
 	// dht          kademlia
 	// dhtMessenger *dhtpb.ProtocolMessenger
 }
@@ -193,10 +192,9 @@ type Provider struct {
 }
 
 type FindContentOutput struct {
-	ParseCIDError      string          `json:"parse_cid_error,omitempty"`
-	FindProvidersError string          `json:"find_providers_error,omitempty"`
+	ParseCIDError      string          `json:"parseCIDError,omitempty"`
+	FindProvidersError string          `json:"findProvidersError,omitempty"`
 	Providers          []peer.AddrInfo `json:"providers,omitempty"`
-	ProvidersError     string          `json:"providers_error,omitempty"`
 }
 
 func (d *daemon) runFindContent(ctx context.Context, uristr string) (FindContentOutput, error) {
@@ -239,7 +237,7 @@ func (d *daemon) runFindContent(ctx context.Context, uristr string) (FindContent
 	}
 
 	if len(providers) == 0 {
-		out.ProvidersError = "no providers found"
+		out.FindProvidersError = "no providers found"
 	}
 
 	out.Providers = providers
@@ -298,8 +296,6 @@ func (d *daemon) runAccessBitswap(ctx context.Context, uristr string) (AccessBit
 	dialCtx, dialCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer dialCancel()
 
-	log.Println("A")
-
 	// NOTE: Right now I'm just using the regular bitswap API
 	// The original ipfs-check was doing something finer by sending WANT message and processing response
 	// themselves. I believe this should be more precise, because you KNOW it's your target node replying
@@ -308,9 +304,8 @@ func (d *daemon) runAccessBitswap(ctx context.Context, uristr string) (AccessBit
 	// Note that in the doc they use 	bsnet "github.com/ipfs/go-graphsync/network", I'm not sure why,
 	// does it mean the bitswap network is deprecated? Couldn't find anything in the doc.
 
-	log.Println("B")
-	// Note: figuring out what is the ds.Batching and what a good default value to put there is hard.
-	// Ok so this is a wrapper around a batching datastore wich is a datastore with batching operations.
+	// Note: figuring out what is the ds.Batching and what a good default value to put there is hard (not doc'd).
+	// This is a wrapper around a batching datastore wich is a datastore with batching operations.
 	// So we have to find who implements the batching datastore.
 	bstore := blockstore.NewBlockstore(datastore.NewMapDatastore())
 	exchange := bitswap.New(ctx, bsn, bstore)
@@ -320,22 +315,17 @@ func (d *daemon) runAccessBitswap(ctx context.Context, uristr string) (AccessBit
 	e.host.Peerstore().AddAddrs(ai.ID, ai.Addrs, time.Hour)
 	bsn.ConnectTo(dialCtx, ai.ID)
 
-	log.Println("C")
 	start := time.Now()
 	block, err := exchange.GetBlock(dialCtx, c)
 	duration := time.Since(start)
-	log.Println("D")
 
 	if err != nil {
-		log.Println("DD", err.Error())
 		out.GetBlockError = err.Error()
 		return out, nil
 	}
 
-	log.Println("GG")
 	out.BlockSizeBytes = block.Cid().ByteLen()
 	out.DurationMS = duration.Milliseconds()
-	log.Println("E")
 
 	return out, nil
 }

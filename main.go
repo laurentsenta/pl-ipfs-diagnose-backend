@@ -5,45 +5,20 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-
-	"github.com/libp2p/go-libp2p"
 )
 
-func outputJSONOrErr(writer http.ResponseWriter, out interface{}, err error) {
-	writer.Header().Add("Access-Control-Allow-Origin", "*")
-
-	if err != nil {
-		writer.WriteHeader(http.StatusInternalServerError)
-		_, _ = writer.Write([]byte(err.Error()))
-		return
-	}
-
-	outputJSON, err := json.Marshal(out)
-
-	if err != nil {
-		writer.WriteHeader(http.StatusInternalServerError)
-		_, _ = writer.Write([]byte(err.Error()))
-		return
-	}
-
-	_, err = writer.Write(outputJSON)
-
-	if err != nil {
-		fmt.Printf("could not return data over HTTP: %v\n", err.Error())
-	}
-}
-
 func main() {
-	// start a libp2p node with default settings
-	node, err := libp2p.New(
-		libp2p.ConnectionGater(&privateAddrFilterConnectionGater{}),
-	)
-	if err != nil {
-		panic(err)
-	}
+	// // start a libp2p node with default settings
+	// node, err := libp2p.New(
+	// 	libp2p.ConnectionGater(&privateAddrFilterConnectionGater{}),
+	// )
+	// if err != nil {
+	// 	panic(err)
+	// }
 
-	// Identify service
-	daemon := &daemon{host: node}
+	// // Identify service
+	// daemon := &daemon{host: node}
+	daemon := &daemon{}
 
 	// Server
 	l, err := net.Listen("tcp", ":3333")
@@ -72,5 +47,29 @@ func main() {
 	err = http.Serve(l, nil)
 	if err != nil {
 		panic(err)
+	}
+}
+
+func outputJSONOrErr(writer http.ResponseWriter, out interface{}, err error) {
+	writer.Header().Add("Access-Control-Allow-Origin", "*")
+
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(err.Error()))
+		return
+	}
+
+	outputJSON, err := json.Marshal(out)
+
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(err.Error()))
+		return
+	}
+
+	_, err = writer.Write(outputJSON)
+
+	if err != nil {
+		fmt.Printf("could not return data over HTTP: %v\n", err.Error())
 	}
 }
