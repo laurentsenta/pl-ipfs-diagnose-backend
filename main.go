@@ -7,8 +7,31 @@ import (
 	"net/http"
 
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p/p2p/protocol/identify"
 )
+
+func outputJSONOrErr(writer http.ResponseWriter, out interface{}, err error) {
+	writer.Header().Add("Access-Control-Allow-Origin", "*")
+
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(err.Error()))
+		return
+	}
+
+	outputJSON, err := json.Marshal(out)
+
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		_, _ = writer.Write([]byte(err.Error()))
+		return
+	}
+
+	_, err = writer.Write(outputJSON)
+
+	if err != nil {
+		fmt.Printf("could not return data over HTTP: %v\n", err.Error())
+	}
+}
 
 func main() {
 	// start a libp2p node with default settings
@@ -20,9 +43,7 @@ func main() {
 	}
 
 	// Identify service
-	idService, err := identify.NewIDService(node, identify.UserAgent("ipfs-check"))
-
-	daemon := &daemon{host: node, idService: idService}
+	daemon := &daemon{host: node}
 
 	// Server
 	l, err := net.Listen("tcp", ":3333")
@@ -32,62 +53,22 @@ func main() {
 
 	fmt.Printf("listening on %v\n", l.Addr())
 
-	// Wait if needed
-
-	fmt.Println("Ready to start serving")
-
 	http.HandleFunc("/identify", func(writer http.ResponseWriter, request *http.Request) {
-		out, err := daemon.runIdentify(writer, request.RequestURI)
-
-		writer.Header().Add("Access-Control-Allow-Origin", "*")
-
-		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
-			_, _ = writer.Write([]byte(err.Error()))
-			return
-		}
-
-		outputJSON, err := json.Marshal(out)
-
-		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
-			_, _ = writer.Write([]byte(err.Error()))
-			return
-		}
-
-		_, err = writer.Write(outputJSON)
-
-		if err != nil {
-			fmt.Printf("could not return data over HTTP: %v\n", err.Error())
-		}
+		out, err := daemon.runIdentify(request.Context(), request.RequestURI)
+		outputJSONOrErr(writer, out, err)
 	})
 
 	http.HandleFunc("/find", func(writer http.ResponseWriter, request *http.Request) {
-		out, err := daemon.runFindContent(writer, request.RequestURI)
-
-		writer.Header().Add("Access-Control-Allow-Origin", "*")
-
-		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
-			_, _ = writer.Write([]byte(err.Error()))
-			return
-		}
-
-		outputJSON, err := json.Marshal(out)
-
-		if err != nil {
-			writer.WriteHeader(http.StatusInternalServerError)
-			_, _ = writer.Write([]byte(err.Error()))
-			return
-		}
-
-		_, err = writer.Write(outputJSON)
-
-		if err != nil {
-			fmt.Printf("could not return data over HTTP: %v\n", err.Error())
-		}
+		out, err := daemon.runFindContent(request.Context(), request.RequestURI)
+		outputJSONOrErr(writer, out, err)
 	})
 
+	http.HandleFunc("/bitswap", func(writer http.ResponseWriter, request *http.Request) {
+		out, err := daemon.runAccessBitswap(request.Context(), request.RequestURI)
+		outputJSONOrErr(writer, out, err)
+	})
+
+	fmt.Println("Ready to start serving")
 	err = http.Serve(l, nil)
 	if err != nil {
 		panic(err)

@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"log"
-	"net/http"
 	"net/url"
 	"time"
 
+	bitswap "github.com/ipfs/go-bitswap"
+	bsnet "github.com/ipfs/go-bitswap/network"
 	"github.com/ipfs/go-cid"
+	"github.com/ipfs/go-datastore"
+	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -83,7 +86,7 @@ func newEphemeralHost(ctx context.Context) ephemeralHost {
 	return ephemeralHost{host: h, idService: id, pingService: p, dht: dht}
 }
 
-func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (IdentifyOutput, error) {
+func (d *daemon) runIdentify(ctx context.Context, uristr string) (IdentifyOutput, error) {
 	out := IdentifyOutput{}
 
 	u, err := url.ParseRequestURI(uristr)
@@ -104,9 +107,6 @@ func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (Identif
 		return out, nil
 	}
 
-	// TODO: probably need a different ctx for the active request?
-	ctx := context.Background()
-
 	e := newEphemeralHost(ctx)
 	defer e.host.Close()
 	defer e.idService.Close()
@@ -122,7 +122,7 @@ func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (Identif
 	// the ability to call connect.
 
 	// Similarly, to get the identify payload you pretty much have to reconstruct
-	// the data, I couldn't find the current snapshot of the identify for a given peer.
+	// the data, I couldn't find the current snapshot for identify for a given peer.
 	e.host.Peerstore().AddAddrs(ai.ID, ai.Addrs, time.Hour)
 	err = e.host.Connect(ctx, *ai)
 
@@ -149,7 +149,7 @@ func (d *daemon) runIdentify(writer http.ResponseWriter, uristr string) (Identif
 	out.PingDurationMS = result.RTT.Milliseconds()
 
 	// identify node
-	identifyC := d.idService.IdentifyWait(conn)
+	identifyC := e.idService.IdentifyWait(conn)
 
 	select {
 	case <-dialCtx.Done():
@@ -194,7 +194,7 @@ type FindContentOutput struct {
 	// Addresses          []string `json:"addresses,omitempty"`
 }
 
-func (d *daemon) runFindContent(writer http.ResponseWriter, uristr string) (FindContentOutput, error) {
+func (d *daemon) runFindContent(ctx context.Context, uristr string) (FindContentOutput, error) {
 	out := FindContentOutput{}
 
 	u, err := url.ParseRequestURI(uristr)
@@ -215,8 +215,6 @@ func (d *daemon) runFindContent(writer http.ResponseWriter, uristr string) (Find
 		return out, nil
 	}
 
-	ctx := context.Background()
-
 	e := newEphemeralHost(ctx)
 	defer e.host.Close()
 	defer e.idService.Close()
@@ -225,12 +223,10 @@ func (d *daemon) runFindContent(writer http.ResponseWriter, uristr string) (Find
 	// The fullrt implementation provides a Ready() method.
 	time.Sleep(5 * time.Second)
 
-	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer dialCancel()
 
 	providers, err := e.dht.FindProviders(dialCtx, c)
-
-	log.Println(e.host.Network().Peers())
 
 	if err != nil {
 		out.FindProvidersError = err.Error()
@@ -248,6 +244,103 @@ func (d *daemon) runFindContent(writer http.ResponseWriter, uristr string) (Find
 	}
 
 	out.Providers = strProviders
+
+	return out, nil
+}
+
+type AccessBitswapOutput struct {
+	ParseCIDError     string `json:"parse_cid_error,omitempty"`
+	ParseAddressError string `json:"parse_address_error,omitempty"`
+	GetBlockError     string `json:"get_block_error,omitempty"`
+	BlockSizeBytes    int    `json:"block_size_bytes,omitempty"`
+	DurationMS        int64  `json:"duration_ms,omitempty"`
+	// Providers          []string `json:"providers,omitempty"`
+	// ProvidersError     string   `json:"providers_error,omitempty"`
+	// PingError          string   `json:"ping_error,omitempty"`
+	// Addresses          []string `json:"addresses,omitempty"`
+}
+
+func (d *daemon) runAccessBitswap(ctx context.Context, uristr string) (AccessBitswapOutput, error) {
+	out := AccessBitswapOutput{}
+
+	u, err := url.ParseRequestURI(uristr)
+	if err != nil {
+		return out, err
+	}
+
+	// Get CID
+	cidstr := u.Query().Get("cid")
+
+	if cidstr == "" {
+		return out, errors.New("missing argument: cid")
+	}
+
+	c, err := cid.Decode(cidstr)
+
+	if err != nil {
+		out.ParseCIDError = err.Error()
+		return out, nil
+	}
+
+	// Get Addr
+	maddr := u.Query().Get("addr")
+
+	if maddr == "" {
+		return out, errors.New("missing argument: addr")
+	}
+
+	ai, err := peer.AddrInfoFromString(maddr)
+
+	if err != nil {
+		out.ParseAddressError = err.Error()
+		return out, nil
+	}
+
+	e := newEphemeralHost(ctx)
+	defer e.host.Close()
+	defer e.idService.Close()
+
+	dialCtx, dialCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer dialCancel()
+
+	log.Println("A")
+
+	// NOTE: Right now I'm just using the regular bitswap API
+	// The original ipfs-check was doing something finer by sending WANT message and processing response
+	// themselves. I believe this should be more precise, because you KNOW it's your target node replying
+	// with the data. But maybe disabling any swarm'ing with libp2p could get the same result (connect only to our target peer).
+	bsn := bsnet.NewFromIpfsHost(e.host, nilRouter)
+	// Note that in the doc they use 	bsnet "github.com/ipfs/go-graphsync/network", I'm not sure why,
+	// does it mean the bitswap network is deprecated? Couldn't find anything in the doc.
+
+	log.Println("B")
+	// Note: figuring out what is the ds.Batching and what a good default value to put there is hard.
+	// Ok so this is a wrapper around a batching datastore wich is a datastore with batching operations.
+	// So we have to find who implements the batching datastore.
+	bstore := blockstore.NewBlockstore(datastore.NewMapDatastore())
+	exchange := bitswap.New(ctx, bsn, bstore)
+	defer exchange.Close()
+
+	// First register the peer then try to connect to it.
+	e.host.Peerstore().AddAddrs(ai.ID, ai.Addrs, time.Hour)
+	bsn.ConnectTo(dialCtx, ai.ID)
+
+	log.Println("C")
+	start := time.Now()
+	block, err := exchange.GetBlock(dialCtx, c)
+	duration := time.Since(start)
+	log.Println("D")
+
+	if err != nil {
+		log.Println("DD", err.Error())
+		out.GetBlockError = err.Error()
+		return out, nil
+	}
+
+	log.Println("GG")
+	out.BlockSizeBytes = block.Cid().ByteLen()
+	out.DurationMS = duration.Milliseconds()
+	log.Println("E")
 
 	return out, nil
 }
