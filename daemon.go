@@ -37,11 +37,12 @@ type ephemeralHost struct {
 }
 
 type IdentifyOutput struct {
-	ParseAddressError  string   `json:"parse_address_error,omitempty"`
-	ConnectToPeerError string   `json:"connect_to_peer_error,omitempty"`
-	IdentifyPeerError  string   `json:"identify_peer_error,omitempty"`
-	PingError          string   `json:"ping_error,omitempty"`
-	PingDurationMS     int64    `json:"ping_duration_ms,omitempty"`
+	ID                 peer.ID  `json:"id,omitempty"`
+	ParseAddressError  string   `json:"parseAddressError,omitempty"`
+	ConnectToPeerError string   `json:"connectToPeerError,omitempty"`
+	IdentifyPeerError  string   `json:"identifyPeerError,omitempty"`
+	PingError          string   `json:"pingError,omitempty"`
+	PingDurationMS     int64    `json:"pingDurationMS,omitempty"`
 	Protocols          []string `json:"protocols,omitempty"`
 	Addresses          []string `json:"addresses,omitempty"`
 }
@@ -106,6 +107,8 @@ func (d *daemon) runIdentify(ctx context.Context, uristr string) (IdentifyOutput
 		out.ParseAddressError = err.Error()
 		return out, nil
 	}
+
+	out.ID = ai.ID
 
 	e := newEphemeralHost(ctx)
 	defer e.host.Close()
@@ -184,14 +187,16 @@ func (d *daemon) runIdentify(ctx context.Context, uristr string) (IdentifyOutput
 	return out, nil
 }
 
+type Provider struct {
+	Id    string   `json:"id"`
+	Addrs []string `json:"addresses"`
+}
+
 type FindContentOutput struct {
-	ParseCIDError      string   `json:"parse_cid_error,omitempty"`
-	FindProvidersError string   `json:"find_providers_error,omitempty"`
-	Providers          []string `json:"providers,omitempty"`
-	ProvidersError     string   `json:"providers_error,omitempty"`
-	// PingError          string   `json:"ping_error,omitempty"`
-	// PingDurationMS     int64    `json:"ping_duration_ms,omitempty"`
-	// Addresses          []string `json:"addresses,omitempty"`
+	ParseCIDError      string          `json:"parse_cid_error,omitempty"`
+	FindProvidersError string          `json:"find_providers_error,omitempty"`
+	Providers          []peer.AddrInfo `json:"providers,omitempty"`
+	ProvidersError     string          `json:"providers_error,omitempty"`
 }
 
 func (d *daemon) runFindContent(ctx context.Context, uristr string) (FindContentOutput, error) {
@@ -233,31 +238,21 @@ func (d *daemon) runFindContent(ctx context.Context, uristr string) (FindContent
 		return out, nil
 	}
 
-	strProviders := make([]string, len(providers))
-
-	for i, a := range providers {
-		strProviders[i] = a.String()
-	}
-
 	if len(providers) == 0 {
 		out.ProvidersError = "no providers found"
 	}
 
-	out.Providers = strProviders
+	out.Providers = providers
 
 	return out, nil
 }
 
 type AccessBitswapOutput struct {
-	ParseCIDError     string `json:"parse_cid_error,omitempty"`
-	ParseAddressError string `json:"parse_address_error,omitempty"`
-	GetBlockError     string `json:"get_block_error,omitempty"`
-	BlockSizeBytes    int    `json:"block_size_bytes,omitempty"`
-	DurationMS        int64  `json:"duration_ms,omitempty"`
-	// Providers          []string `json:"providers,omitempty"`
-	// ProvidersError     string   `json:"providers_error,omitempty"`
-	// PingError          string   `json:"ping_error,omitempty"`
-	// Addresses          []string `json:"addresses,omitempty"`
+	ParseCIDError     string `json:"parseCIDError,omitempty"`
+	ParseAddressError string `json:"parseAddressError,omitempty"`
+	GetBlockError     string `json:"getBlockError,omitempty"`
+	BlockSizeBytes    int    `json:"blockSizeBytes,omitempty"`
+	DurationMS        int64  `json:"durationMS,omitempty"`
 }
 
 func (d *daemon) runAccessBitswap(ctx context.Context, uristr string) (AccessBitswapOutput, error) {
