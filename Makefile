@@ -1,2 +1,2 @@
 all:
-	docker build -t ipfs-check-pp . && docker run -p 3333:3333 -it ipfs-check-pp
+	docker build -t pl-ipfs-diagnose-backend . && docker run -p 3333:3333 -it pl-ipfs-diagnose-backend

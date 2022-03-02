@@ -7,7 +7,7 @@ COPY go.sum ./
 RUN go mod download
 
 COPY *.go ./
-RUN go build -o /ipfs-check-pp
+RUN go build -o /backend
 
 EXPOSE 3333
-CMD [ "/ipfs-check-pp" ]
+CMD [ "/backend" ]
